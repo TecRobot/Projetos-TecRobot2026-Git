@@ -1,0 +1,9 @@
+[
+  {
+    "type": "java",
+    "name": "frcJava",
+    "port": 8349,
+    "target": "10.91.66.2",
+    "project": "ProjetoTecRobot2026"
+  }
+]
