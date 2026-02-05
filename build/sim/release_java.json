@@ -1,0 +1,21 @@
+[
+  {
+    "type": "java",
+    "name": "jar (in project ProjetoTecRobot2026)",
+    "extensions": [
+      {
+        "name": "Sim GUI",
+        "libName": "C:\\Users\\Aluno\\Desktop\\prog@tec\\ProjetoTecRobot2026\\build\\jni\\release\\halsim_gui.dll",
+        "defaultEnabled": true
+      },
+      {
+        "name": "Use Real DriverStation",
+        "libName": "C:\\Users\\Aluno\\Desktop\\prog@tec\\ProjetoTecRobot2026\\build\\jni\\release\\halsim_ds_socket.dll",
+        "defaultEnabled": false
+      }
+    ],
+    "environment": {},
+    "libraryDir": "C:\\Users\\Aluno\\Desktop\\prog@tec\\ProjetoTecRobot2026\\build\\jni\\release",
+    "mainClassName": "frc.robot.Main"
+  }
+]
