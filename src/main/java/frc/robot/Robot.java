@@ -28,6 +28,10 @@ import com.revrobotics.spark.config.SparkMaxConfig;
 import com.revrobotics.spark.SparkMax;
 import com.revrobotics.spark.SparkLowLevel.MotorType;
 import com.revrobotics.spark.SparkBase;
+import edu.wpi.first.networktables.DoubleSubscriber;
+import edu.wpi.first.networktables.IntegerSubscriber;
+import edu.wpi.first.networktables.NetworkTable;
+import edu.wpi.first.networktables.NetworkTableInstance;
 
 
 
@@ -68,6 +72,10 @@ public class Robot extends TimedRobot {
   // Puxando todos os métodos e classes do arquivo Movimentos, para ser utilizado no autonomos
   Movimentos movimentos;
    
+  // Variáveis do NetworkTables
+  private NetworkTable table;
+  private IntegerSubscriber idSub;
+  private DoubleSubscriber yawSub;
 
   // Declaração dos Motores
   public MotorController motorEsquerdaMestre = new WPI_VictorSPX(4);
@@ -79,6 +87,7 @@ public class Robot extends TimedRobot {
   public SparkMax ShooterPreto = new SparkMax(3, MotorType.kBrushless); // LADO ESQUERDO
   public SparkMax ShooterLaranja = new SparkMax(2, MotorType.kBrushless); // LADO Direito
   public SparkMax Pegar_Shooter = new SparkMax(11, MotorType.kBrushless); //motor de baixo
+  public SparkMax Esteira = new SparkMax(7, MotorType.kBrushless); //Esteira
   // Definição entradas de temperatura no Shuffleboard
   private GenericEntry shooterPretoTempEntry;
   private GenericEntry shooterLaranjaTempEntry;
@@ -125,6 +134,23 @@ public class Robot extends TimedRobot {
 
     //CAMERA
     //CameraServer.startAutomaticCapture();
+  }
+
+  @Override
+  public void robotInit() {
+    // 1. Inicializa a instância do NetworkTables
+    NetworkTableInstance inst = NetworkTableInstance.getDefault();
+
+    // 2. Acessa a tabela "VisionData" (deve ser o mesmo nome usado no Python da Raspberry)
+    table = inst.getTable("VisionData");
+
+    // 3. Configura os "assinantes" para ler o ID e o Yaw
+    // O -1 e o 0.0 são os valores padrão caso a Raspberry esteja desligada
+    idSub = table.getIntegerTopic("targetID").subscribe(-1);
+    yawSub = table.getDoubleTopic("targetYaw").subscribe(0.0);
+    
+    // Opcional: Mostrar no SmartDashboard que a visão iniciou
+    SmartDashboard.putString("Status Visao", "Conectado ao NT");
   }
   
   @Override
@@ -187,6 +213,8 @@ public class Robot extends TimedRobot {
     double turn = -controle.getRightX();//joystick lado direito
     double pegar /*Pegar_Shooter*/ = controle.getRawAxis(3);//gatilho lado esquerdo
     double acelerar = controle.getRawAxis(2);//gatilho lado direito
+    boolean a = controle.getRightStickButton();; //esteira
+    boolean x = controle.getLeftStickButton();; //esteira reversa
 
   //Funções Controle2
   /*boolean b2 = controle2.getBButton();
@@ -252,6 +280,10 @@ public class Robot extends TimedRobot {
     chassi.curvatureDrive(speed, turn, quickTurn); 
    */
 
+   // 1. Lê os dados que vêm da Raspberry via NetworkTables
+    long idVisto = idSub.get();
+    double erroYaw = yawSub.get();
+
     // DEFINIÇÃO DO QUE FAZ CADA BOTÃO
 
      if (acelerar>=0.1) { /* 0.1 pq é necessario um valor double ou int*/    
@@ -267,11 +299,14 @@ public class Robot extends TimedRobot {
       ShooterPreto.set(0.8);
       //ShooterLaranja.set(0.3); 
       Pegar_Shooter.set(0.65);
+      Esteira.set(0.);
     }else if(b) {
       // Devolve combustìvel
       ShooterPreto.set(-0.5);
       //ShooterLaranja.set(-0.5);
       Pegar_Shooter.set(-0.5);
+      Esteira.set(-0.75);
+
     }else if (y) {
       // Inicia o timer apenas na borda de subida do botão Y
       if (!yStarted) {
@@ -280,18 +315,23 @@ public class Robot extends TimedRobot {
         yStarted = true;
       }
       // Enquanto Y pressionado, após 1s roda os dois em potência máxima/negativa como desejado
-      if (timerTele.get() > 1.0) {
+      if (timerTele.get() > 0.5) {
         ShooterPreto.set(-0.8);   // primeiro motor
-        ShooterLaranja.set(0.7);  // segundo motor
+        ShooterLaranja.set(0.8);  // segundo motor
         Pegar_Shooter.set(0.8);
+        Esteira.set(-0.75);
       } else {
         // comportamento durante o delay (ex.: roda só um motor ou potência reduzida)
         ShooterPreto.set(0.1);
-        ShooterLaranja.set(0.7);
+        ShooterLaranja.set(0.8);
         Pegar_Shooter.set(0);
+        Esteira.set(0);
     }
-  }
-    else{
+  } else if(a) {
+      Esteira.set(0.75);
+    } else if(x) {
+      Esteira.set(-0.75);
+    } else {
       // Parar o timer e resetá-lo
       timerTele.stop();
       timerTele.reset();
@@ -301,7 +341,8 @@ public class Robot extends TimedRobot {
       ShooterPreto.set(0);
       ShooterLaranja.set(0);
       Pegar_Shooter.set(0);
-    }
+      Esteira.set(0);
+      }
     chassi.curvatureDrive(speed, turn, quickTurn);
     
   }
