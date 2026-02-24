@@ -1,4 +1,5 @@
 package frc.robot;
+
 // Importação das bibliotecas
 import com.ctre.phoenix.motorcontrol.IFollower;
 import com.ctre.phoenix.motorcontrol.IMotorController;
@@ -13,6 +14,7 @@ import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
 import edu.wpi.first.wpilibj.motorcontrol.MotorController;
 import edu.wpi.first.wpilibj.motorcontrol.MotorControllerGroup;
+import edu.wpi.first.wpilibj.shuffleboard.BuiltInWidgets;
 import edu.wpi.first.wpilibj.shuffleboard.Shuffleboard;
 import edu.wpi.first.wpilibj.shuffleboard.ShuffleboardTab;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
@@ -28,7 +30,10 @@ import com.revrobotics.spark.config.SparkMaxConfig;
 import com.revrobotics.spark.SparkMax;
 import com.revrobotics.spark.SparkLowLevel.MotorType;
 import com.revrobotics.spark.SparkBase;
-
+import edu.wpi.first.networktables.DoubleSubscriber;
+import edu.wpi.first.networktables.IntegerSubscriber;
+import edu.wpi.first.networktables.NetworkTable;
+import edu.wpi.first.networktables.NetworkTableInstance;
 
 
 
@@ -46,54 +51,63 @@ public class Robot extends TimedRobot {
   private Timer timerTele = new Timer();//timer teleoperado
   private boolean yStarted = false;
 
-  
-  //Declaração do limitador
-  private SlewRateLimiter aceleracaoSuave;
-
-    /*
-   * SlewRateLimiter controla quanto a velocidade pode variar por segundo.
-   * Valor 2.5 → leva ~0.4s para ir de 0 a 100%.
-   * Isso evita tranco mecânico e picos de corrente.
-   */
-  private SlewRateLimiter shooterRateLimiter = new SlewRateLimiter(2.5);
-
-   // Velocidade desejada do shooter (setpoint)
-   private double shooterTargetSpeed = 0.0;
-                      
- 
-
   // ===== CHASSI e Movimentos =====
   DifferentialDrive chassi;
 
   // Puxando todos os métodos e classes do arquivo Movimentos, para ser utilizado no autonomos
   Movimentos movimentos;
+
+  // Puxa todos os dados da Raspberry pi em python
+  Vision vision;
    
+  // Variáveis do NetworkTables
+  private NetworkTable table;
+  private IntegerSubscriber idSub;
+  private DoubleSubscriber yawSub;
 
   // Declaração dos Motores
-  public MotorController motorEsquerdaMestre = new WPI_VictorSPX(4);
-  public MotorController motorEsquerda       = new WPI_VictorSPX(6);
-  public MotorController motorDireitaMestre  = new WPI_VictorSPX(13);
-  public MotorController motorDireita        = new WPI_VictorSPX(2);
+  public MotorController motorEsquerdaMestre = new WPI_VictorSPX(1);// 1 e 2 esquerda
+  public MotorController motorEsquerda       = new WPI_VictorSPX(2);
+  public MotorController motorDireitaMestre  = new WPI_VictorSPX(3);
+  public MotorController motorDireita        = new WPI_VictorSPX(4);
+  public MotorController motorClimberMestre = new WPI_VictorSPX(5); //CLIMBER
+  public MotorController motorClimber = new WPI_VictorSPX(6); // CLIMBER
+
+
 
   // Ligar motor NEO / ID
-  public SparkMax ShooterPreto = new SparkMax(3, MotorType.kBrushless); // LADO ESQUERDO
-  public SparkMax ShooterLaranja = new SparkMax(2, MotorType.kBrushless); // LADO Direito
-  public SparkMax Pegar_Shooter = new SparkMax(11, MotorType.kBrushless); //motor de baixo
+  public SparkMax ShooterPreto = new SparkMax(10, MotorType.kBrushless); // LADO ESQUERDO
+  public SparkMax ShooterLaranja = new SparkMax(7, MotorType.kBrushless); // LADO DIREITO
+  public SparkMax Pegar_Shooter = new SparkMax(9, MotorType.kBrushless); //MOTOR DE BAIXO
+  public SparkMax Esteira = new SparkMax(8, MotorType.kBrushless); //ESTEIRA
+  //Declaração de Spark com numero de RPM
+  private SparkMaxConfig shooterConfig;
   // Definição entradas de temperatura no Shuffleboard
   private GenericEntry shooterPretoTempEntry;
   private GenericEntry shooterLaranjaTempEntry;
-  private GenericEntry Pegar_ShooterTempEntry;
   // Entradas para velocidade/potência no Shuffleboard
   private GenericEntry shooterPretoSpeedEntry;
   private GenericEntry shooterLaranjaSpeedEntry;
   private GenericEntry pegarShooterSpeedEntry;
+  //Entradas Para o RPM do Shooter
+  private GenericEntry rpmPretoEntry;
+  private GenericEntry rpmLaranjaEntry;
+  // Declaração do tempo
+  private double startTime;
+  // Entradas específicas para o Shuffleboard visão
+  private GenericEntry visaoHasTargetEntry;
+  private GenericEntry visaoIdEntry;
+  private GenericEntry visaoDistanciaEntry;
  
   // Definição controle
-  XboxController controle = new XboxController(0);
-  //XboxController controle2 = new XboxController(0);
+  XboxController controle = new XboxController(1);
+  XboxController controle2 = new XboxController(0);
 
+ // Declaração Autonomos
+  Autonomous autonomo;
 
   public Robot() {
+    
     // Cria abas/entradas no Shuffleboard para mostrar temperatura
     shooterPretoTempEntry = Shuffleboard.getTab("Shooter").add("Shooter1 Temp (C)", 0.0).withPosition(0, 0).getEntry();
     shooterLaranjaTempEntry = Shuffleboard.getTab("Shooter").add("Shooter2 Temp (C)", 0.0).withPosition(2, 0).getEntry();
@@ -104,27 +118,97 @@ public class Robot extends TimedRobot {
      m_chooser.setDefaultOption("Default Auto", kDefaultAuto);
      m_chooser.addOption("My Auto", kCustomAuto);
      SmartDashboard.putData("Auto choices", m_chooser);
+     // Criar as entradas para o RPM (Valor inicial 0.0)
+    rpmPretoEntry = Shuffleboard.getTab("Shooter")
+        .add("RPM Real Preto", 0.0)
+        .withPosition(4, 0) // Coluna 4, Linha 0
+        .getEntry();
+
+    rpmLaranjaEntry = Shuffleboard.getTab("Shooter")
+        .add("RPM Real Laranja", 0.0)
+        .withPosition(6, 0) // Coluna 6, Linha 0
+        .getEntry();
     
 
     // Definição para motores andarem juntos
-
     ((IFollower) motorEsquerda).follow((IMotorController) motorEsquerdaMestre);
     ((IFollower) motorDireita).follow((IMotorController) motorDireitaMestre);
 
-    // Invertendo um lado
+    //Motores do Climber
+    ((IFollower) motorClimber).follow((IMotorController) motorClimberMestre);
 
+    // Invertendo um lado
     motorDireitaMestre.setInverted(true);
     motorDireita.setInverted(true);
 
     //Definição Chassi
-
     chassi = new DifferentialDrive(motorEsquerdaMestre, motorDireitaMestre);
     
     // Inicializa a classe Movimentos
     movimentos = new Movimentos(chassi);
 
-    //CAMERA
-    //CameraServer.startAutomaticCapture();
+   //CAMERA
+    vision = new Vision("Camera_TecRobot");
+
+    //Inicializa a classe Autonomous
+    autonomo = new Autonomous(movimentos, vision);
+ 
+    // Declaração dos botões para escolher o autônomo no Shuffleboard
+    auto_Chooser.setDefaultOption("AutonomoEsquerda", "Esquerda");
+    auto_Chooser.setDefaultOption("AutonomoDireita", "Direita");
+    auto_Chooser.setDefaultOption("AutonomoMeio", "Meio");
+
+    ShuffleboardTab tab = Shuffleboard.getTab("Autônomos");
+    tab.add("Escolher Autônomo", auto_Chooser);
+
+    //Shuffle para a visão
+    // Criando a aba de Visão no Shuffleboard
+    ShuffleboardTab visaoTab = Shuffleboard.getTab("Visão");
+
+    visaoHasTargetEntry = visaoTab.add("Tem Alvo", false)
+      .withWidget(BuiltInWidgets.kBooleanBox) // Cria um quadrado que brilha (verde/vermelho)
+      .withPosition(0, 0)
+      .getEntry();
+
+    visaoIdEntry = visaoTab.add("ID da Tag", -1)
+      .withPosition(1, 0)
+      .getEntry();
+
+    visaoDistanciaEntry = visaoTab.add("Distância (m)", 0.0)
+      .withPosition(2, 0)
+      .getEntry();
+  }
+
+  @SuppressWarnings("removal")
+  @Override
+  public void robotInit() {
+    // 1. Inicializa a instância do NetworkTables
+    NetworkTableInstance inst = NetworkTableInstance.getDefault();
+
+    // 2. Acessa a tabela "VisionData" (deve ser o mesmo nome usado no Python da Raspberry)
+    table = inst.getTable("VisionData");
+
+    // 3. Configura os "assinantes" para ler o ID e o Yaw
+    // O -1 e o 0.0 são os valores padrão caso a Raspberry esteja desligada
+    idSub = table.getIntegerTopic("targetID").subscribe(-1);
+    yawSub = table.getDoubleTopic("targetYaw").subscribe(0.0);
+    
+    // Opcional: Mostrar no SmartDashboard que a visão iniciou
+    SmartDashboard.putString("Status Visao", "Conectado ao NT");
+
+    //SparkMaxConfig para definir parâmetros do motor
+    shooterConfig = new SparkMaxConfig();
+    shooterConfig.closedLoop
+        .p(0.0001)           // Ajuste fino: se oscilar muito, diminua
+        .velocityFF(0.00018); // Ajuste principal: para o motor NEO chegar perto do RPM alvo
+
+    // 2. Aplicar configuração ao motor do lado direito (Laranja)
+    // O ResetMode.kResetSafeParameters garante que configurações antigas sejam limpas
+    ShooterLaranja.configure(shooterConfig, SparkBase.ResetMode.kResetSafeParameters, SparkBase.PersistMode.kNoPersistParameters);
+
+    // 3. Inicializar o controlador que você declarou lá em cima
+    m_closedLoopController = ShooterLaranja.getClosedLoopController();
+
   }
   
   @Override
@@ -145,31 +229,55 @@ public class Robot extends TimedRobot {
     } catch (Exception e) {
       // evita exceção se o método não existir na sua versão da lib
     }
+    
+    try {
+        // Pega a velocidade atual dos encoders e envia para a Shuffleboard
+        rpmPretoEntry.setDouble(ShooterPreto.getEncoder().getVelocity());
+        rpmLaranjaEntry.setDouble(ShooterLaranja.getEncoder().getVelocity());
+    } catch (Exception e) {
+        // Silencia erros caso os motores não estejam conectados
+    }
+
+    // --- CÓDIGO DE TESTE DA VISÃO ---
+    if (vision != null) {
+        visaoHasTargetEntry.setBoolean(vision.hasTarget());
+        visaoIdEntry.setDouble(vision.getTargetID());
+        visaoDistanciaEntry.setDouble(vision.getDistance());
+      }
   }
 
   @Override
   public void autonomousInit() {
-    m_autoSelected = m_chooser.getSelected();
-    // m_autoSelected = SmartDashboard.getString("Auto Selector", kDefaultAuto);
-    System.out.println("Auto selected: " + m_autoSelected);
+   selectedAuto = auto_Chooser.getSelected();
+    System.out.println("Modo autônomo selecionado:" + selectedAuto);
+
+    // Iniciando o timer do autonomus
+      startTime = Timer.getFPGATimestamp();
+      SmartDashboard.putNumber("Tempoinicial", startTime);
+
   }
 
   /** This function is called periodically during autonomous. */
   @Override
   public void autonomousPeriodic() {
-    switch (m_autoSelected) {
-      case kCustomAuto:
-        // Put custom auto code here
-        /*Exemplo:
-         * movimentos.frente(0.5, 0.0, false);
-         */
+   double time = Timer.getFPGATimestamp();
+    SmartDashboard.putNumber("Tempoautonomos", time);
+    /* essa lógica serve para selecionar de qual posição o robo partirá no modo Autonomus */
+    switch (selectedAuto) {
+      case "Meio":
+        autonomo.Meio();
+         break;
+      case "Esquerda":
+        autonomo.Esquerda();
         break;
-      case kDefaultAuto:
+      case "Direita":
+        autonomo.Direita();
+        break;
       default:
-        // Put default auto code here
-        break;
+        break;  
     }
   }
+  
 
   /** This function is called once when teleop is enabled. */
   @Override
@@ -180,77 +288,27 @@ public class Robot extends TimedRobot {
   @Override
   public void teleopPeriodic() {
  // ===== MOVIMENTAÇÃO CONTROLE =====
-    boolean b = controle.getBButton();//expulsa bola do reservatório
-    boolean y = controle.getYButton();//shooter
+
+ // CONTROLE 1
+    double speed = -controle.getLeftY();//Joystick lado esquerdo
+    double turn = -controle.getRightX();//Joystick lado direito
+    boolean b = controle.getBButton();//Expulsa bola do reservatório
+    boolean y = controle.getYButton();//Shooter - LANÇAR
     boolean quickTurn = controle.getRawButton(6);//girar no proprio eixo
-    double speed = -controle.getLeftY(); //joystick lado esquerdo
-    double turn = -controle.getRightX();//joystick lado direito
-    double pegar /*Pegar_Shooter*/ = controle.getRawAxis(3);//gatilho lado esquerdo
-    double acelerar = controle.getRawAxis(2);//gatilho lado direito
+    double pegar = controle.getRightTriggerAxis();// gatilho lado Direito
+    double acelerar = controle.getLeftTriggerAxis();// gatilho lado Esquerda
 
-  //Funções Controle2
-  /*boolean b2 = controle2.getBButton();
-    boolean y2 = controle2.getYButton();
-    double pegar2 = controle2.getRawAxis(3);
- 
-// 1. Mapeia o que qualquer um dos dois pilotos quer fazer
-    boolean querPegar    = (Pegar_Shooter >= 0.1 || pegar2 >= 0.1); 
-    boolean querAtirar   = (y || y2);
-    boolean querDevolver = (b || b2);
+    // CONTROLE 2
+    boolean a = controle2.getAButton(); // ESTEIRA
+    boolean x = controle2.getXButton(); // ESTEIRA
+    double CLIMBSOBE = controle2.getRightTriggerAxis(); // Gatilho Lado Direito
+    double CLIMBEDESCE = controle2.getLeftTriggerAxis(); // Gatilho Lado Esquerda
 
-    // 2. Verifica se existem comandos conflitantes ao mesmo tempo
-    boolean conflito = (querPegar && querAtirar) || 
-                       (querPegar && querDevolver) || 
-                       (querAtirar && querDevolver);
-
-    // 3. Execução com Prioridade de Segurança
-
-    if(conflito){
-      ShooterPreto.set(0);
-      ShooterLaranja.set(0);
-      Pegar_Shooter.set(0);
-    }else if(querPegar) {
-    // Coloca combustivel no reservatório
-      ShooterPreto.set(0.8);
-      //ShooterLaranja.set(0.3); 
-      Pegar_Shooter.set(0.45);
-    }else if(querAtirar){
-// Inicia o timer apenas na borda de subida do botão Y
-      if (!yStarted) {
-        timerTele.reset();
-        timerTele.start();
-        yStarted = true;
-      }
-// Enquanto Y pressionado, após 1s roda os dois em potência máxima/negativa como desejado
-      if (timerTele.get() > 1.0) {
-        ShooterPreto.set(-0.8);   // primeiro motor
-        ShooterLaranja.set(0.7);  // segundo motor
-        Pegar_Shooter.set(0.8);
-      } else {
-// comportamento durante o delay (ex.: roda só um motor ou potência reduzida)
-        ShooterPreto.set(0.1);
-        ShooterLaranja.set(0.7);
-        Pegar_Shooter.set(0);
-      }
-    } else if (querDevolver){
-// Devolve combustìvel
-      ShooterPreto.set(-0.5);
-//ShooterLaranja.set(-0.5);
-      Pegar_Shooter.set(-0.5);
-    } else {
- // Parar o timer e resetá-lo
-      timerTele.stop();
-      timerTele.reset();
-// Definir como falso a codição que começa o timer de volta
-      yStarted = false;
-// Parar Robô
-      ShooterPreto.set(0);
-      ShooterLaranja.set(0);
-      Pegar_Shooter.set(0);
-    }
     
-    chassi.curvatureDrive(speed, turn, quickTurn); 
-   */
+
+   // 1. Lê os dados que vêm da Raspberry via NetworkTables
+    //long idVisto = idSub.get();
+    //double erroYaw = yawSub.get();
 
     // DEFINIÇÃO DO QUE FAZ CADA BOTÃO
 
@@ -262,36 +320,49 @@ public class Robot extends TimedRobot {
       speed = speed * 0.5;
       turn = turn * 0.5;
     }
-    if(pegar >= 0.1){
-      // Coloca combustivel no reservatório
+ // ESSTEIRA / CONTROLE 2
+    if (a) {
+      Esteira.set (0.75); // ESTEIRA LARGAR
+    } else if (x) {
+      Esteira.set (-0.75); // ESTEIRA PEGAR
+    } else {
+      Esteira.set (0); // ESTEIRA PARAR
+    }
+// Logica do Climb / CONTROLE 2
+    if(CLIMBSOBE >= 0.1){
+      motorClimberMestre.set(-0.3);
+    } else if(CLIMBEDESCE >= 0.1){
+      motorClimberMestre.set(0.3);
+    } else {
+      motorClimberMestre.set(0);
+    }
+        
+    if(pegar >= 0.1){  // Recolhe combustivel
       ShooterPreto.set(0.8);
-      //ShooterLaranja.set(0.3); 
       Pegar_Shooter.set(0.65);
-    }else if(b) {
-      // Devolve combustìvel
+      Esteira.set(0.5);
+    }else if(b) { // Devolve combustìvel
       ShooterPreto.set(-0.5);
-      //ShooterLaranja.set(-0.5);
       Pegar_Shooter.set(-0.5);
     }else if (y) {
-      // Inicia o timer apenas na borda de subida do botão Y
+    // Inicia o timer apenas na borda de subida do botão Y
       if (!yStarted) {
         timerTele.reset();
         timerTele.start();
         yStarted = true;
       }
       // Enquanto Y pressionado, após 1s roda os dois em potência máxima/negativa como desejado
-      if (timerTele.get() > 1.0) {
+      if (timerTele.get() > 0.5) {
         ShooterPreto.set(-0.8);   // primeiro motor
-        ShooterLaranja.set(0.7);  // segundo motor
+        ShooterLaranja.set(-0.8); // segundo motor
         Pegar_Shooter.set(0.8);
       } else {
         // comportamento durante o delay (ex.: roda só um motor ou potência reduzida)
         ShooterPreto.set(0.1);
-        ShooterLaranja.set(0.7);
-        Pegar_Shooter.set(0);
+        ShooterLaranja.set(-0.8);  // segundo motor
+        Pegar_Shooter.set(-0.75);
     }
-  }
-    else{
+  }  else {
       // Parar o timer e resetá-lo
       timerTele.stop();
       timerTele.reset();
@@ -301,7 +372,7 @@ public class Robot extends TimedRobot {
       ShooterPreto.set(0);
       ShooterLaranja.set(0);
       Pegar_Shooter.set(0);
-    }
+      }
     chassi.curvatureDrive(speed, turn, quickTurn);
     
   }
