@@ -3,6 +3,7 @@ package frc.robot;
 // Importação das bibliotecas
 import com.ctre.phoenix.motorcontrol.IFollower;
 import com.ctre.phoenix.motorcontrol.IMotorController;
+import com.ctre.phoenix.motorcontrol.can.VictorSPX;
 import com.ctre.phoenix.motorcontrol.can.WPI_VictorSPX;
 import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.cameraserver.CameraServer;
@@ -46,13 +47,16 @@ public class Robot extends TimedRobot {
   private String selectedAuto;
   private SparkClosedLoopController m_closedLoopController; // Controlador de PID/SmartMotion
   
-  // Puxando todos os métodos e classes do arquivo Timer, para ser utilizado no autonomos
-  private Timer timerAuto = new Timer();//timer autonomous
-  private Timer timerTele = new Timer();//timer teleoperado
+  // Puxando todos os métodos e classes do arquivo Timer, para ser utilizado no autonomo
+  private Timer timerTele = new Timer();// Timer Teleoperado
   private boolean yStarted = false;
 
+  //Declaração timer
+  private Timer timer = new Timer();
+
+
   // ===== CHASSI e Movimentos =====
-  DifferentialDrive chassi;
+  DifferentialDrive chassi; // DECLARAÇÃO CHASSI
 
   // Puxando todos os métodos e classes do arquivo Movimentos, para ser utilizado no autonomos
   Movimentos movimentos;
@@ -66,19 +70,19 @@ public class Robot extends TimedRobot {
   private DoubleSubscriber yawSub;
 
   // Declaração dos Motores
-  public MotorController motorEsquerdaMestre = new WPI_VictorSPX(1);// 1 e 2 esquerda
-  public MotorController motorEsquerda       = new WPI_VictorSPX(2);
-  public MotorController motorDireitaMestre  = new WPI_VictorSPX(3);
-  public MotorController motorDireita        = new WPI_VictorSPX(4);
-  public MotorController motorClimberMestre = new WPI_VictorSPX(5); //CLIMBER
-  public MotorController motorClimber = new WPI_VictorSPX(6); // CLIMBER
+  public MotorController motorEsquerdaMestre = new WPI_VictorSPX(1);// 1 TRAÇÃO - ESQUERDA
+  public MotorController motorEsquerda       = new WPI_VictorSPX(2);// 2 TRAÇÃO - ESQUERDA
+  public MotorController motorDireitaMestre  = new WPI_VictorSPX(3);// 3 TRAÇÃO - DIREITA
+  public MotorController motorDireita        = new WPI_VictorSPX(4);// 4 TRAÇÃO - DIREITA
+  public MotorController motorClimberMestre = new WPI_VictorSPX(5); // 5 - CLIMBER
+  public MotorController motorClimber = new WPI_VictorSPX(6);       // 6 - CLIMBER
 
 
 
   // Ligar motor NEO / ID
   public SparkMax ShooterPreto = new SparkMax(10, MotorType.kBrushless); // LADO ESQUERDO
   public SparkMax ShooterLaranja = new SparkMax(7, MotorType.kBrushless); // LADO DIREITO
-  public SparkMax Pegar_Shooter = new SparkMax(9, MotorType.kBrushless); //MOTOR DE BAIXO
+  public SparkMax Pegar_Shooter = new SparkMax(9, MotorType.kBrushless); //MOTOR DE BAIXO - ESQUERDA
   public SparkMax Esteira = new SparkMax(8, MotorType.kBrushless); //ESTEIRA
   //Declaração de Spark com numero de RPM
   private SparkMaxConfig shooterConfig;
@@ -100,11 +104,10 @@ public class Robot extends TimedRobot {
   private GenericEntry visaoDistanciaEntry;
  
   // Definição controle
-  XboxController controle = new XboxController(1);
-  //XboxController controle2 = new XboxController(0);
+  XboxController controle = new XboxController(1); // CONTROLE GERAL (Tração e funções com combustível)
+  XboxController controle2 = new XboxController(0); // CONTROLE APOIO (Climb e Esteira)
 
- // Declaração Autonomos
-  Autonomous autonomo;
+ 
 
   public Robot() {
     
@@ -130,33 +133,41 @@ public class Robot extends TimedRobot {
         .getEntry();
     
 
-    // Definição para motores andarem juntos
+    // Definição para motores da tração andarem juntos
     ((IFollower) motorEsquerda).follow((IMotorController) motorEsquerdaMestre);
     ((IFollower) motorDireita).follow((IMotorController) motorDireitaMestre);
 
-    //Motores do Climber
+    // Motores do Climber andarem juntos
     ((IFollower) motorClimber).follow((IMotorController) motorClimberMestre);
 
-    // Invertendo um lado
+    // Invertendo um lado para tração
     motorDireitaMestre.setInverted(true);
     motorDireita.setInverted(true);
 
-    //Definição Chassi
+    //Definição Chassi 
     chassi = new DifferentialDrive(motorEsquerdaMestre, motorDireitaMestre);
     
     // Inicializa a classe Movimentos
-    movimentos = new Movimentos(chassi);
-
+  movimentos = new Movimentos(
+    chassi,
+    ShooterPreto,
+    ShooterLaranja,
+    Pegar_Shooter,
+    motorClimber,
+    motorClimberMestre
+);
    //CAMERA
     vision = new Vision("Camera_TecRobot");
 
     //Inicializa a classe Autonomous
-    autonomo = new Autonomous(movimentos, vision);
+  
+  // autonomo = new Autonomous(movimentos, vision);
  
     // Declaração dos botões para escolher o autônomo no Shuffleboard
-    auto_Chooser.setDefaultOption("AutonomoEsquerda", "Esquerda");
-    auto_Chooser.setDefaultOption("AutonomoDireita", "Direita");
-    auto_Chooser.setDefaultOption("AutonomoMeio", "Meio");
+    auto_Chooser.setDefaultOption("MeioBola", "MeioBola");
+    auto_Chooser.addOption("MeioRampa", "MeioRampa");
+    auto_Chooser.addOption("DireitaBola", "DireitaBola");
+    auto_Chooser.addOption("EsquerdaHumano", "EsquerdaHumano");
 
     ShuffleboardTab tab = Shuffleboard.getTab("Autônomos");
     tab.add("Escolher Autônomo", auto_Chooser);
@@ -248,35 +259,61 @@ public class Robot extends TimedRobot {
 
   @Override
   public void autonomousInit() {
-   selectedAuto = auto_Chooser.getSelected();
-    System.out.println("Modo autônomo selecionado:" + selectedAuto);
+    selectedAuto = auto_Chooser.getSelected();
+    System.out.println("Modo autônomo selecionado: " + selectedAuto);
 
-    // Iniciando o timer do autonomus
-      startTime = Timer.getFPGATimestamp();
-      SmartDashboard.putNumber("Tempoinicial", startTime);
+    startTime = Timer.getFPGATimestamp(); //
+      
 
   }
 
   /** This function is called periodically during autonomous. */
   @Override
   public void autonomousPeriodic() {
-   double time = Timer.getFPGATimestamp();
-    SmartDashboard.putNumber("Tempoautonomos", time);
+   
+    //SmartDashboard.putNumber("Tempoautonomos", timer);
     /* essa lógica serve para selecionar de qual posição o robo partirá no modo Autonomus */
     switch (selectedAuto) {
-      case "Meio":
-        autonomo.Meio();
+      case "MeioBola":
+
          break;
-      case "Esquerda":
-        autonomo.Esquerda();
+      case "MeioRampa":
+       double tempoAtual = Timer.getFPGATimestamp();
+
+    if (tempoAtual - startTime < 1.5) {
+        movimentos.frente(0.3);
+    } else if ((tempoAtual - startTime < 9) && (tempoAtual - startTime > 1.5)){
+        movimentos.atirar();
+        Esteira.set (-0.5); // ESTEIRA LARGAR
+    }else {
+        movimentos.parar();
+        movimentos.pararShooter();
+        Esteira.set (0);
+    }
         break;
-      case "Direita":
-        autonomo.Direita();
+      case "DireitaBola":
+      double tempoAtualD = Timer.getFPGATimestamp();
+       if (tempoAtualD - startTime < 2.4) {
+        movimentos.esquerda(0.2,0.5);
+    }  else if ((tempoAtualD - startTime < 3.4) && (tempoAtualD - startTime > 2.4)){
+        movimentos.tras(0.3);
+    }else if ((tempoAtualD - startTime < 9.4) && (tempoAtualD - startTime > 3.4)){
+        movimentos.atirar();
+        Esteira.set (-0.5); // ESTEIRA LARGAR
+    }else {
+        movimentos.parar();
+        movimentos.pararShooter();
+        Esteira.set(0);
+    }
+        
+        break;
+        case "EsquerdaHumano":
+       
         break;
       default:
         break;  
     }
-  }
+  };
   
 
   /** This function is called once when teleop is enabled. */
@@ -289,20 +326,20 @@ public class Robot extends TimedRobot {
   public void teleopPeriodic() {
  // ===== MOVIMENTAÇÃO CONTROLE =====
 
- // CONTROLE 1
+    // CONTROLE 1
     double speed = -controle.getLeftY();//Joystick lado esquerdo
     double turn = -controle.getRightX();//Joystick lado direito
-    boolean b = controle.getBButton();//Expulsa bola do reservatório
     boolean y = controle.getYButton();//Shooter - LANÇAR
-    boolean quickTurn = controle.getRawButton(6);//girar no proprio eixo
-    double pegar = controle.getRightTriggerAxis();// gatilho lado Direito
-    double acelerar = controle.getLeftTriggerAxis();// gatilho lado Esquerda
+    boolean quickTurn = controle.getRawButton(6);//Girar no proprio eixo
+    double acelerar = controle.getLeftTriggerAxis();// Gatilho lado Esquerda
 
     // CONTROLE 2
-    boolean a = controle.getAButton(); // ESTEIRA
-    boolean x = controle.getXButton(); // ESTEIRA
-    //double CLIMBSOBE = controle2.getRightTriggerAxis(); // Gatilho Lado Direito
-    //double CLIMBEDESCE = controle2.getLeftTriggerAxis(); // Gatilho Lado Esquerda
+    boolean a = controle2.getAButton(); // ESTEIRA
+    boolean x = controle2.getXButton(); // ESTEIRA
+    double CLIMBSOBE = controle2.getRightTriggerAxis(); // Gatilho Lado Direito
+    double CLIMBEDESCE = controle2.getLeftTriggerAxis(); // Gatilho Lado Esquerda
+    boolean b = controle2.getYButton();//Expulsa bola do reservatório
+    boolean pegar = controle2.getBButton();// Gatilho lado Direito
 
     
 
@@ -311,7 +348,8 @@ public class Robot extends TimedRobot {
     //double erroYaw = yawSub.get();
 
     // DEFINIÇÃO DO QUE FAZ CADA BOTÃO
-
+     
+  // CONTROLE 1
      if (acelerar>=0.1) { /* 0.1 pq é necessario um valor double ou int*/    
       // Acelerador
       speed = speed * 0.8;
@@ -329,18 +367,18 @@ public class Robot extends TimedRobot {
       Esteira.set (0); // ESTEIRA PARAR
     }
 // Logica do Climb / CONTROLE 2
-    /*if(CLIMBSOBE >= 0.1){
+    if(CLIMBSOBE >= 0.1){
       motorClimberMestre.set(-0.3);
     } else if(CLIMBEDESCE >= 0.1){
       motorClimberMestre.set(0.3);
     } else {
       motorClimberMestre.set(0);
-    }*/
-        
-    if(pegar >= 0.1){  // Recolhe combustivel
+    }
+  
+  //CONTROLE 1
+    if(pegar){  // Recolhe combustivel
       ShooterPreto.set(0.8);
       Pegar_Shooter.set(0.65);
-      Esteira.set(0.5);
     }else if(b) { // Devolve combustìvel
       ShooterPreto.set(-0.5);
       Pegar_Shooter.set(-0.5);
@@ -352,14 +390,14 @@ public class Robot extends TimedRobot {
         yStarted = true;
       }
       // Enquanto Y pressionado, após 1s roda os dois em potência máxima/negativa como desejado
-      if (timerTele.get() > 0.5) {
-        ShooterPreto.set(-0.8);   // primeiro motor
+      if (timerTele.get() > 0.3) {
+        ShooterPreto.set(-0.9);   // primeiro motor
         ShooterLaranja.set(-0.8); // segundo motor
         Pegar_Shooter.set(0.8);
       } else {
         // comportamento durante o delay (ex.: roda só um motor ou potência reduzida)
-        ShooterPreto.set(0.1);
-        ShooterLaranja.set(-0.8);  // segundo motor
+        ShooterPreto.set(0);
+        ShooterLaranja.set(-1);  // segundo motor
         Pegar_Shooter.set(-0.75);
     }
   }  else {
