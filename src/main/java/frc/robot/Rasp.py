@@ -224,6 +224,3 @@ if __name__ == "__main__":
 #    vision.buscar_tag_especifica(id_para_buscar)
 #    
 #    time.sleep(0.1) # Pequena pausa para não sobrecarregar o processador
-
-
-    

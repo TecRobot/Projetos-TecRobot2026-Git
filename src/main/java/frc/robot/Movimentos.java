@@ -1,32 +1,42 @@
 package frc.robot;
+
+import com.ctre.phoenix.motorcontrol.can.VictorSPX;
 import com.revrobotics.spark.SparkMax;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
-
+import edu.wpi.first.wpilibj.motorcontrol.MotorController;
+import edu.wpi.first.wpilibj.Timer;
 
 public class Movimentos {
 
     private DifferentialDrive chassi;
 
-    private SparkMax ShooterPreto;
-    private SparkMax ShooterLaranja;
-    private SparkMax Pegar_Shooter;
-    private SparkMax Climb;
-    
-    //===== Construtot recebe o chassi ========
+    private SparkMax shooterPreto;
+    private SparkMax shooterLaranja;
+    private SparkMax pegarShooter;
+    private MotorController ClimberD;
+    private MotorController ClimberE;
 
-      public Movimentos(DifferentialDrive chassi) {
+    // Para a função do atirar
+    private Timer timerShooter = new Timer();
+    private boolean shooterIniciado = false;
+
+    // ===== Construtor único =====
+    public Movimentos(DifferentialDrive chassi,
+                      SparkMax shooterPreto,
+                      SparkMax shooterLaranja,
+                      SparkMax pegarShooter,
+                      MotorController ClimberD,
+                       MotorController ClimberE) {
+
         this.chassi = chassi;
-        
+        this.shooterPreto = shooterPreto;
+        this.shooterLaranja = shooterLaranja;
+        this.pegarShooter = pegarShooter;
+        this.ClimberD = ClimberD;
+        this.ClimberE = ClimberE;
     }
 
-    public Movimentos(SparkMax ShooterPreto, SparkMax ShooterLaranja, SparkMax Pegar_Shooter, SparkMax Climb) {
-        this.ShooterPreto = ShooterPreto;
-        this.ShooterLaranja = ShooterLaranja;
-        this.Pegar_Shooter = Pegar_Shooter;
-        this.Climb = Climb;
-    }
-
-    // ================ Movimentos Basicos ==============
+    // ================ MOVIMENTOS DO CHASSI ================
 
     public void frente(double velocidade) {
         chassi.curvatureDrive(velocidade, 0.0, false);
@@ -36,17 +46,14 @@ public class Movimentos {
         chassi.curvatureDrive(-velocidade, 0.0, false);
     }
 
-    public void direita(double velocidade, double Rotation) {
-        chassi.curvatureDrive(velocidade, Rotation, true);
+    public void direita(double velocidade, double rotacao) {
+        chassi.curvatureDrive(velocidade, rotacao, false);
     }
 
-    public void esquerda(double velocidade, double Rotation) {
-        chassi.curvatureDrive(velocidade, -Rotation, true);
+    public void esquerda(double velocidade, double rotacao) {
+        chassi.curvatureDrive(velocidade, -rotacao, false);
     }
-   
-    // Curva enquanto anda para frente (diagonal)
-    // intensidadeCurva = -1.0 (esquerda) até 1.0 (direita)
-    // Diagonal: velocidade > 0 para frente, velocidade < 0 para trás
+
     public void diagonal(double velocidade, double intensidadeCurva) {
         chassi.curvatureDrive(velocidade, intensidadeCurva, false);
     }
@@ -54,34 +61,36 @@ public class Movimentos {
     public void parar() {
         chassi.curvatureDrive(0.0, 0.0, false);
     }
-        // ================ Movimentos do Shooter ==============
 
-    public void atirar(double velocidade, double velocidade2, double velocidade3) {
-        ShooterPreto.set(velocidade);
-        ShooterLaranja.set(velocidade);
-        Pegar_Shooter.set(velocidade);
+    // ================ SHOOTER ================
+
+    // Todos na mesma velocidade
+    public void atirar() {
+     
+        shooterPreto.set(-0.8);
+        shooterLaranja.set(-0.8);
+        pegarShooter.set(0.8);
+
     }
 
-    public void pegar(double velocidade, double velocidade2) {
-        Pegar_Shooter.set(velocidade);
-        ShooterLaranja.set(velocidade);
+    public void pegar(double velocidade) {
+       shooterPreto.set(0.8);
+       pegarShooter.set(0.65);
     }
-    
 
 
-    public void Devolver(double velocidade, double velocidade2) {
-        Pegar_Shooter.set(-velocidade);
-        ShooterLaranja.set(-velocidade);
-    }
-    
     public void pararShooter() {
-        ShooterPreto.set(0.0);
-        ShooterLaranja.set(0.0);
-        Pegar_Shooter.set(0.0);
+        shooterPreto.set(0.0);
+        shooterLaranja.set(0.0);
+        pegarShooter.set(0.0);
+
+        timerShooter.stop();
+        timerShooter.reset();
+        shooterIniciado = false;
+
     }
 
-    public void Climb(double velocidade){
+    public void Climb (){
 
     }
-
 }
